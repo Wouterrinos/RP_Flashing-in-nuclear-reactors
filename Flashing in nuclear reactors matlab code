@@ -1,0 +1,187 @@
+%Jasper Heikoop & Wouter van Rijkom
+%
+%25-10-2018
+
+clc
+clear all
+close all
+%%
+%Variables
+%Given values
+%Lengths in meters
+L_Inlet_section = 0.994;
+L_Core = 2.038;
+L_Chimney = 3.078;
+L_Downcomer = 6.11;
+L_Horizontal_pieces = 3.0;
+%Diameters in meters
+D_Heating_rod = 0.0125;
+D_Core = 0.0204;
+D_Core_hydrolic = D_Core - D_Heating_rod;
+D_Chimney = 0.0204;
+D_Downcomer = 0.0255;
+D_Horizontal = D_Downcomer;
+%Areas in meters
+A_Core = 4*pi*((D_Core/2)^2-(D_Heating_rod/2)^2);
+A_Chimney = 4*pi*(D_Chimney/2)^2;
+A_Downcomer = pi*(D_Downcomer/2)^2;
+A_Horizontal = A_Downcomer;
+%Frictions
+K_Core_in = 15.85;
+K_Chimney_out = 1.7;
+%Heat loss to surroundings
+Amount_of_cores = 4;
+Heat_loss = 600*Amount_of_cores;
+
+
+%Own values
+C_p = 4187;    %[J/(kg*K))
+g = 9.81;       %[m/s^2]
+H = L_Downcomer;%[m]
+
+%Possible start Temperatures
+T_start = 80 ;
+T_finish = 99 ;
+steps = 20 ;
+T = linspace(T_start, T_finish, steps) ;
+
+
+%%
+%Start vectors needed for the for loop
+q = zeros(0,numel(T));      %Every value of q ends up here
+T_Core = zeros(0,2000); %Every value of T_Core ends up here
+for count = 1:numel(T)          %For-loop that calculates q for every inlet temperature
+    
+    p = 1 ; %p in bar
+    %Every temperature in degrees Celsius
+    T_Sat = 4.853*p^3-27.15*p^2+68.24*p+53.69;  %The saturation temperature needed 
+    T_Inlet = T(count);
+    T_Core = linspace(T(count),T_Sat,20);  %Gradually increases to the saturation temperature
+    T_Core_avg = (T_Sat+T_Inlet)./2 ;
+    T_Chimney = T_Sat;                          %Temperature doesn't change.
+    T_Horizontal = T_Inlet;                       %What are the horizontal pieces? I'm assuming the ones at the bottom.
+    T_Downcomer = T_Inlet;   %Gradually decreases to the inlet temperature
+    %
+    %Every density with T in degrees Celsius and rho in kg/m^3
+    %rho = 0.00001477.*T.^3-0.005742.*T.^2+0.01037.*T+1000.0;
+    rho_Inlet =  0.00001477.*T_Inlet.^3-0.005742.*T_Inlet.^2+0.01037.*T_Inlet+1000.0 ;
+    rho_Core = zeros(0,numel(T_Core));          %Empty rho_Core array
+    for counter = 1:numel(T_Core)                 %Loop to go through every temperature in the core
+        rho_Core(counter) =  0.00001477.*T_Core(counter).^3-0.005742.*T_Core(counter).^2+0.01037.*T_Core(counter)+1000.0 ;
+    end
+    rho_Core_avg =  0.00001477.*T_Core_avg.^3-0.005742.*T_Core_avg.^2+0.01037.*T_Core_avg+1000.0 ;
+    rho_Chimney =  0.00001477.*T_Chimney.^3-0.005742.*T_Chimney.^2+0.01037.*T_Chimney+1000.0 ;
+    rho_Horizontal = 0.00001477.*T_Horizontal.^3-0.005742.*T_Horizontal.^2+0.01037.*T_Horizontal+1000.0 ;
+    rho_Downcomer = 0.00001477.*T_Downcomer.^3-0.005742.*T_Downcomer.^2+0.01037.*T_Downcomer+1000.0;
+  
+    %Every viscosity with T in degrees Celsius and mu in Pa*s
+    %mu = 0.00000005709.*T.^2-0.00001372.*T+0.001085;
+    mu_Inlet = 0.00000005709.*T_Inlet.^2-0.00001372.*T_Inlet+0.001085;
+    mu_Core = zeros(0,numel(T_Core));           %Empty mu_Core array
+    for counter = 1:numel(T_Core)                 %Loop to go through every temperature in the core
+        mu_Core(counter) = 0.00000005709.*T_Core(counter).^2-0.00001372.*T_Core(counter)+0.001085;    
+    end
+    mu_Core_avg = 0.00000005709.*T_Core_avg.^2-0.00001372.*T_Core_avg+0.001085;
+    mu_Chimney = 0.00000005709.*T_Chimney.^2-0.00001372.*T_Chimney+0.001085;
+    mu_Horizontal = 0.00000005709.*T_Horizontal.^2-0.00001372.*T_Horizontal+0.001085;
+   mu_Downcomer = 0.00000005709.*T_Downcomer.^2-0.00001372.*T_Downcomer+0.001085; 
+
+    mu_Sat = 0.00000005709.*T_Sat.^2-0.00001372.*T_Sat+0.001085; %Niet helemaal zeker waar deze voor is
+    %
+    %Enthalphy change calculation
+    delta_T = T_Sat - T_Inlet ; %Temperature change depending on T_inlet
+    delta_h = C_p.*delta_T;     %Enthalphy change
+    %
+    %Density change calculation
+    rho_Sat = 958.742 ;                 %Density when saturated at 1 bar
+    delta_rho = rho_Inlet - rho_Sat ;   %Density change depending on rho_Inlet
+    %
+    %Start values needed for the while loop
+    uGuessedIt = 10 ;   %A guess at the karakteristic flow speed in m/s
+    error = 1 ;         %Start of error
+    while error > 0.001 
+        
+        %Every value for f depending on u
+        Re_Inlet = (rho_Inlet.*uGuessedIt.*D_Downcomer)./mu_Inlet ;
+        f_Inlet = 1./((-1.8*log10(6.9./Re_Inlet)).^2) ;
+        
+       % f_Core = zeros(0,numel(rho_Core));
+       % for counter = 1:numel(rho_Core)
+       %     Re_Core = (rho_Core(counter).*uGuessedIt.*D_Core_hydrolic)./mu_Core(counter) ;
+       %     f_Core(counter) = 1./((-1.8*log10(6.9./Re_Core)).^2) ;
+       % end
+    
+       Re_Core_avg = rho_Core_avg.*uGuessedIt.*D_Core_hydrolic./mu_Core_avg ;
+       f_Core_avg = 1./((-1.8.*log10(6.9./Re_Core_avg)).^2);
+       
+        Re_Chimney = (rho_Chimney.*uGuessedIt.*D_Chimney)./mu_Chimney ;
+        f_Chimney = 1./((-1.8.*log10(6.9./Re_Chimney)).^2) ;
+        
+        Re_Horizontal = (rho_Horizontal.*uGuessedIt.*D_Horizontal)./mu_Horizontal;
+        %Assuming that the diameter is the same as the Dowcomer's
+        f_Horizontal = 1./((-1.8.*log10(6.9./Re_Horizontal)).^2) ;
+        
+        Re_Downcomer = (rho_Downcomer.*uGuessedIt.*D_Downcomer)./mu_Downcomer ;
+        f_Downcomer = 1./((-1.8.*log10(6.9./Re_Downcomer)).^2) ;
+        
+     
+        
+        %Sums with both friction parts
+       % sum_Core = 0;
+        %for counter = 1:numel(rho_Core)
+         %   sum_part_Core = 4*0.5.*f_Core(counter).*rho_Core(counter)*L_Core/(D_Core_hydrolic)*(A_Core^2/A_Core^2) ;
+          %  sum_Core = sum_Core + sum_part_Core;
+       % end
+        sum_Core_avg = 4*0.5.*f_Core_avg.*rho_Core_avg*L_Core/(D_Core_hydrolic)*(A_Core^2/A_Core^2) ;
+        sum_Chimney = 0.5.*rho_Chimney*4*K_Chimney_out*(A_Core^2/A_Chimney^2) + 4*0.5.*f_Chimney*rho_Chimney*L_Chimney/(D_Chimney)*(A_Core^2/A_Chimney^2); 
+     
+        %
+        %Sums with only wall friction
+        sum_Downcomer =0.5.*rho_Downcomer.*K_Core_in.*(A_Core^2/A_Downcomer^2)+(0.5.*f_Downcomer.*rho_Downcomer.*L_Downcomer)/(D_Downcomer)*(A_Core^2/A_Downcomer^2);
+      
+        %
+        sum_Horizontal = (0.5*f_Horizontal.*rho_Horizontal*L_Horizontal_pieces)/(D_Horizontal)*(A_Core^2/A_Horizontal^2);
+        %Sum of all frictions
+        sum_Friction = (sum_Core_avg + sum_Chimney + sum_Downcomer + sum_Horizontal) ;
+        
+        u_new = sqrt((delta_rho*g*H)./(sum_Friction)); % Calculation of the value of u that goes with the calculated friction.
+        error = abs((uGuessedIt-u_new)/u_new) ; %Difference between the input value of u and the value that came out of it.
+        uGuessedIt = u_new ;    %Takes the calculated value of u as the new guess value.
+    end
+    q_temp = 0;
+    Q = 0;%zeros(0,numel(rho_Core_avg));
+   for counter = 1:numel(rho_Core_avg)
+    %    Q(counter) = delta_h.*rho_Core(counter).*A_Core.*sqrt((delta_rho.*g*H)./(sum_Friction))+Heat_loss;
+     Q = delta_h.*rho_Core_avg.*A_Core.*sqrt((delta_rho.*g*H)./(sum_Friction))+Heat_loss;
+       q_temp = q_temp + Q;
+    end
+   q(count) = q_temp;
+
+end
+
+%figure
+%%
+plot(T,q) 
+xlabel('Inlet temperature [C]')
+ylabel('Heating power [W]')
+grid on
+
+%%
+Power = 4*[750 900 1050 1200 1400 1600];    %% Error of 0.5 from read out
+Core_inlet_PC = [100.1 99.0  97.0 95.4 93.7 91.3];  %% Error of 0.05 from read out
+Core_inlet_Gauge = [99 97 95 94 92 90];      %% Error of 0.5 from read out
+
+u_Power = ones(1,numel(Power))*0.5;
+u_Core_inlet = ones(1,numel(Power))*(0.5+0.05)/2*10;
+
+% Bigger error because of human read out
+
+
+% Estimation calculation was wrong
+
+%%
+
+Core_inlet = (Core_inlet_PC+Core_inlet_Gauge)/2;
+
+hold on 
+errorbar(Core_inlet,Power,u_Power,-u_Power,u_Core_inlet, -u_Core_inlet)
